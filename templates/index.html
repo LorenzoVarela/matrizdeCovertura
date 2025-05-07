@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Matriz de Cobertura</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 80%;
+            margin: 20px auto;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generador de Matriz de Cobertura</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <div>
+            <label for="fichero_requisitos">Fichero de Requisitos (.ods):</label>
+            <input type="file" name="fichero_requisitos" id="fichero_requisitos" required>
+        </div>
+        <br>
+        <div>
+            <label for="fichero_pruebas">Fichero de Pruebas (.ods):</label>
+            <input type="file" name="fichero_pruebas" id="fichero_pruebas" required>
+        </div>
+        <br>
+        <button type="submit">Generar Matriz</button>
+    </form>
+
+    {% if error %}
+    <p style="color: red;">{{ error }}</p>
+    {% endif %}
+
+    <div>
+        <h2>Matriz de Cobertura:</h2>
+        {{ matriz_html|safe }}
+        {% if matriz %}
+        <form action="/exportar_excel" method="get">
+            {% for id_req in lista_ids %}
+                <input type="hidden" name="lista_ids" value="{{ id_req }}">
+            {% endfor %}
+            {% for prueba in lista_pruebas %}
+                <input type="hidden" name="lista_pruebas" value="{{ prueba }}">
+                {% for id_req, valor in matriz.get(prueba, {}).items() %}
+                    <input type="hidden" name="cobertura_{{ prueba }}" value="{{ id_req }}:{{ valor }}">
+                {% endfor %}
+            {% endfor %}
+            <br>
+            <button type="submit">Exportar a Excel</button>
+        </form>
+        {% endif %}
+    </div>
+</body>
+</html>
