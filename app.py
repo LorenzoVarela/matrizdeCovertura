@@ -25,18 +25,25 @@ def procesar_ficheros(ruta_requisitos, ruta_pruebas):
         df_requisitos = pd.read_excel(ruta_requisitos,engine='odf', sheet_name='Requisitos_de_Sistema', header=7)
         df_pruebas = pd.read_excel(ruta_pruebas, engine='odf', sheet_name='Resultados_Pruebas', skiprows=8)
 
-        lista_ids_requisitos = df_requisitos['ID'].tolist()
-        lista_codigos_prueba = df_pruebas['Código de Prueba'].tolist()
-        matriz_cobertura = {}
+        if 'ID' not in df_requisitos.columns:
+            df_requisitos['ID'] = pd.Series(dtype=str)
+        if 'Código de Prueba' not in df_pruebas.columns:
+            df_pruebas['Código de Prueba'] = pd.Series(dtype=str)
 
+        lista_ids_requisitos = df_requisitos['ID'].astype(str).tolist()
+        lista_codigos_prueba = df_pruebas['Código de Prueba'].astype(str).tolist()
+
+        lista_ids_requisitos = [id_req for id_req in lista_ids_requisitos if pd.notna(id_req)]
+        lista_codigos_prueba = [codigo for codigo in lista_codigos_prueba if pd.notna(codigo)]
+
+        matriz_cobertura = {}
         for codigo_prueba in lista_codigos_prueba:
-            matriz_cobertura[codigo_prueba] = {}
-            for id_requisito in lista_ids_requisitos:
-                matriz_cobertura[codigo_prueba][id_requisito] = ""
+            matriz_cobertura[codigo_prueba] = {id_requisito: "" for id_requisito in lista_ids_requisitos}
 
         for index, row in df_requisitos.iterrows():
-            id_requisito = row['ID']
-            cubierto_por_str = str(row['Cubierto por']).strip()
+            id_requisito = str(row.get('ID', '')).strip()
+            cubierto_por_str = str(row.get('Cubierto por', '')).strip()
+
             if cubierto_por_str and cubierto_por_str != 'nan':
                 pruebas_cubriendo = [p.strip() for p in cubierto_por_str.split(',')]
                 for prueba in pruebas_cubriendo:
@@ -46,11 +53,16 @@ def procesar_ficheros(ruta_requisitos, ruta_pruebas):
         return lista_ids_requisitos, lista_codigos_prueba, matriz_cobertura
 
     except Exception as e:
+        print(f"Error al procesar los ficheros: {e}")
         return None, None, None
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     matriz_html = ""
+    lista_ids_guardada = []
+    lista_pruebas_guardada = []
+    matriz_guardada = {}
+
     if request.method == 'POST':
         if 'fichero_requisitos' not in request.files or 'fichero_pruebas' not in request.files:
             return render_template('index.html', error='Por favor, sube ambos ficheros.')
@@ -82,10 +94,46 @@ def index():
                         matriz_html += f"<td>{cobertura.get(id_req, '')}</td>"
                     matriz_html += "</tr>"
                 matriz_html += "</table>"
+                lista_ids_guardada = lista_ids
+                lista_pruebas_guardada = lista_pruebas
+                matriz_guardada = matriz
             else:
                 return render_template('index.html', error='Error al procesar los ficheros. Asegúrate de que tienen el formato correcto.')
 
-    return render_template('index.html', matriz_html=matriz_html)
+    return render_template('index.html', matriz_html=matriz_html,
+                           lista_ids=lista_ids_guardada,
+                           lista_pruebas=lista_pruebas_guardada,
+                           matriz=matriz_guardada)
+
+@app.route('/exportar_excel')
+def exportar_excel():
+    lista_ids = request.args.getlist('lista_ids')
+    lista_pruebas = request.args.getlist('lista_pruebas')
+    matriz_data = {}
+    for prueba in request.args.getlist('lista_pruebas'):
+        cobertura = {}
+        for id_req in request.args.getlist(f'cobertura_{prueba}'):
+            partes = id_req.split(':')
+            if len(partes) == 2:
+                req_id, valor = partes
+                cobertura[req_id] = valor
+        matriz_data[prueba] = cobertura
+
+    if not matriz_data:
+        return "No hay datos para exportar."
+
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine='xlsxwriter')
+
+    df = pd.DataFrame.from_dict(matriz_data, orient='index', columns=lista_ids)
+    df.index.name = 'Código de Prueba'
+    df.to_excel(writer, sheet_name='Matriz de Cobertura')
+
+    writer.close()
+    output.seek(0)
+
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name='matriz_cobertura.xlsx')
 
 if __name__ == '__main__':
     app.run(debug=True)
